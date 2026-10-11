@@ -124,8 +124,9 @@ so no forced subtitle is needed.
 
 **Download limits**
 Free OpenSubtitles accounts get about **20 downloads a day**. The official OpenSubtitles plugin uses the same
-allowance if it's logged in with the same account. Searches don't count. When the quota runs out, the run stops and
-picks up where it left off next time.
+allowance if it's logged in with the same account. Searches don't count. When the allowance runs out, the run stops
+straight away, and later runs (including the ones after library scans) are skipped until OpenSubtitles says it has
+renewed. The next run then picks up where it left off.
 
 **Deleted and re-added an item?**
 Subtitles in the metadata folder belong to Jellyfin's database entry for that item, so they're removed with it. The

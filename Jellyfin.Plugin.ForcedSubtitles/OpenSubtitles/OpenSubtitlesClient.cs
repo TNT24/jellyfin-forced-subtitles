@@ -7,6 +7,7 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.ForcedSubtitles.Configuration;
@@ -27,6 +28,10 @@ public sealed class OpenSubtitlesClient : IDisposable
     private static readonly TimeSpan TokenLifetime = TimeSpan.FromHours(12);
     private static readonly TimeSpan LoginFailureBackoff = TimeSpan.FromMinutes(15);
 
+    // Used when the API says the allowance is gone but not when it comes back.
+    private static readonly TimeSpan QuotaFallbackWait = TimeSpan.FromHours(1);
+    private static readonly TimeSpan MaxRetryAfter = TimeSpan.FromSeconds(30);
+
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<OpenSubtitlesClient> _logger;
     private readonly CredentialsProvider _credentials;
@@ -41,6 +46,7 @@ public sealed class OpenSubtitlesClient : IDisposable
     private string? _failedOwner;
     private DateTime _loginRetryAfter = DateTime.MinValue;
     private string? _lastLoginError;
+    private DateTime _downloadsBlockedUntil = DateTime.MinValue;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="OpenSubtitlesClient"/> class.
@@ -59,6 +65,18 @@ public sealed class OpenSubtitlesClient : IDisposable
 
     /// <summary>Gets a value indicating whether an API key has been configured.</summary>
     public bool IsConfigured => Credentials.ApiKey.Length > 0;
+
+    /// <summary>
+    /// Gets the time (UTC) the daily download allowance renews, while it is used up; otherwise null.
+    /// </summary>
+    public DateTime? DownloadsBlockedUntil
+    {
+        get
+        {
+            var until = _downloadsBlockedUntil;
+            return until > DateTime.UtcNow ? until : null;
+        }
+    }
 
     /// <summary>Searches for subtitles.</summary>
     /// <param name="query">The search.</param>
@@ -81,9 +99,16 @@ public sealed class OpenSubtitlesClient : IDisposable
     /// <summary>Downloads a subtitle file. Counts against the account's daily allowance.</summary>
     /// <param name="fileId">The OpenSubtitles file id.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The subtitle content in SRT format and the remaining daily downloads.</returns>
-    public async Task<(Stream Content, int Remaining)> DownloadAsync(int fileId, CancellationToken cancellationToken)
+    /// <returns>The subtitle content in SRT format and the remaining daily downloads, if the API reported them.</returns>
+    public async Task<(Stream Content, int? Remaining)> DownloadAsync(int fileId, CancellationToken cancellationToken)
     {
+        // Don't spend a request on a download we already know will be refused.
+        if (DownloadsBlockedUntil is DateTime blocked)
+        {
+            throw new DownloadQuotaExceededException(
+                $"OpenSubtitles daily download limit reached; renews at {blocked:yyyy-MM-dd HH:mm} UTC");
+        }
+
         await EnsureLoggedInAsync(false, cancellationToken).ConfigureAwait(false);
 
         using var response = await SendAsync(
@@ -97,7 +122,17 @@ public sealed class OpenSubtitlesClient : IDisposable
         if (response.StatusCode == HttpStatusCode.NotAcceptable)
         {
             var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            throw new DownloadQuotaExceededException("OpenSubtitles daily download limit reached: " + body);
+            DownloadResponse? refused = null;
+            try
+            {
+                refused = JsonSerializer.Deserialize<DownloadResponse>(body);
+            }
+            catch (JsonException)
+            {
+            }
+
+            BlockDownloads(refused?.ResetTimeUtc);
+            throw new DownloadQuotaExceededException("OpenSubtitles daily download limit reached: " + (refused?.Message ?? body));
         }
 
         await EnsureSuccessAsync(response, cancellationToken).ConfigureAwait(false);
@@ -105,6 +140,12 @@ public sealed class OpenSubtitlesClient : IDisposable
         if (string.IsNullOrEmpty(info?.Link))
         {
             throw new HttpRequestException("OpenSubtitles did not return a download link: " + info?.Message);
+        }
+
+        // That was the last one for today: stop before the next search rather than after a refused download.
+        if (info.Remaining is <= 0)
+        {
+            BlockDownloads(info.ResetTimeUtc);
         }
 
         var http = _httpClientFactory.CreateClient();
@@ -207,6 +248,30 @@ public sealed class OpenSubtitlesClient : IDisposable
         }
 
         return string.Join('&', p.Select(kv => Uri.EscapeDataString(kv.Key) + "=" + Uri.EscapeDataString(kv.Value)));
+    }
+
+    /// <summary>
+    /// How long to wait after a 429: the server's Retry-After if it sent one (capped), else a short backoff.
+    /// </summary>
+    internal static TimeSpan GetRetryDelay(RetryConditionHeaderValue? retryAfter, int attempt, DateTimeOffset now)
+    {
+        var fallback = TimeSpan.FromSeconds(1 + attempt);
+        var delay = retryAfter?.Delta ?? (retryAfter?.Date is DateTimeOffset date ? date - now : fallback);
+        if (delay <= TimeSpan.Zero)
+        {
+            return fallback;
+        }
+
+        return delay > MaxRetryAfter ? MaxRetryAfter : delay;
+    }
+
+    private void BlockDownloads(DateTime? resetTimeUtc)
+    {
+        var until = resetTimeUtc is DateTime reset && reset.ToUniversalTime() > DateTime.UtcNow
+            ? reset.ToUniversalTime()
+            : DateTime.UtcNow + QuotaFallbackWait;
+        _downloadsBlockedUntil = until;
+        _logger.LogInformation("OpenSubtitles download allowance used up; pausing downloads until {Until:yyyy-MM-dd HH:mm} UTC", until);
     }
 
     private static async Task EnsureSuccessAsync(HttpResponseMessage response, CancellationToken cancellationToken)
@@ -364,8 +429,9 @@ public sealed class OpenSubtitlesClient : IDisposable
 
             if (response.StatusCode == HttpStatusCode.TooManyRequests && attempt < 3)
             {
+                var delay = GetRetryDelay(response.Headers.RetryAfter, attempt, DateTimeOffset.UtcNow);
                 response.Dispose();
-                await Task.Delay(TimeSpan.FromSeconds(1 + attempt), cancellationToken).ConfigureAwait(false);
+                await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
                 continue;
             }
 

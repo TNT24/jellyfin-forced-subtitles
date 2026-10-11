@@ -93,6 +93,13 @@ public sealed class ForcedSubtitleProcessor
 
         try
         {
+            // Searching is pointless while nothing can be downloaded; the next run picks up where this left off.
+            if (_client.DownloadsBlockedUntil is DateTime blocked)
+            {
+                _logger.LogInformation("Forced Subtitles: daily download limit used up until {Until:yyyy-MM-dd HH:mm} UTC, skipping run", blocked);
+                return;
+            }
+
             // Check the login once up front; otherwise bad credentials turn every video into an error.
             try
             {
@@ -146,6 +153,13 @@ public sealed class ForcedSubtitleProcessor
 
                 if (outcome.Detail?.StartsWith("Quota", StringComparison.Ordinal) == true)
                 {
+                    break;
+                }
+
+                // The last download used up the allowance: stop now instead of searching for the next video.
+                if (_client.DownloadsBlockedUntil is DateTime until)
+                {
+                    _logger.LogInformation("Forced Subtitles: daily download limit used up until {Until:yyyy-MM-dd HH:mm} UTC, stopping", until);
                     break;
                 }
             }

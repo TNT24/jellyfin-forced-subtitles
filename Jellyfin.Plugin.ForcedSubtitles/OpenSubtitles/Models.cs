@@ -148,7 +148,7 @@ public sealed class DownloadResponse
     public string? FileName { get; set; }
 
     [JsonPropertyName("remaining")]
-    public int Remaining { get; set; }
+    public int? Remaining { get; set; }
 
     [JsonPropertyName("message")]
     public string? Message { get; set; }

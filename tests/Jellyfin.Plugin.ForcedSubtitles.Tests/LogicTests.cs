@@ -153,3 +153,43 @@ public class MovieHashTests
         File.Delete(tmp);
     }
 }
+
+public class RetryDelayTests
+{
+    private static readonly System.DateTimeOffset Now = new(2026, 10, 11, 12, 0, 0, System.TimeSpan.Zero);
+
+    [Fact]
+    public void NoHeader_UsesShortBackoff()
+    {
+        Assert.Equal(System.TimeSpan.FromSeconds(1), OpenSubtitlesClient.GetRetryDelay(null, 0, Now));
+        Assert.Equal(System.TimeSpan.FromSeconds(3), OpenSubtitlesClient.GetRetryDelay(null, 2, Now));
+    }
+
+    [Fact]
+    public void DeltaHeader_IsHonoured()
+    {
+        var header = new System.Net.Http.Headers.RetryConditionHeaderValue(System.TimeSpan.FromSeconds(7));
+        Assert.Equal(System.TimeSpan.FromSeconds(7), OpenSubtitlesClient.GetRetryDelay(header, 0, Now));
+    }
+
+    [Fact]
+    public void DateHeader_IsHonoured()
+    {
+        var header = new System.Net.Http.Headers.RetryConditionHeaderValue(Now.AddSeconds(5));
+        Assert.Equal(System.TimeSpan.FromSeconds(5), OpenSubtitlesClient.GetRetryDelay(header, 0, Now));
+    }
+
+    [Fact]
+    public void LongWait_IsCapped()
+    {
+        var header = new System.Net.Http.Headers.RetryConditionHeaderValue(System.TimeSpan.FromHours(1));
+        Assert.Equal(System.TimeSpan.FromSeconds(30), OpenSubtitlesClient.GetRetryDelay(header, 0, Now));
+    }
+
+    [Fact]
+    public void PastDate_FallsBackToBackoff()
+    {
+        var header = new System.Net.Http.Headers.RetryConditionHeaderValue(Now.AddSeconds(-5));
+        Assert.Equal(System.TimeSpan.FromSeconds(2), OpenSubtitlesClient.GetRetryDelay(header, 1, Now));
+    }
+}
