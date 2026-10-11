@@ -1,0 +1,29 @@
+[
+  {
+    "guid": "5c6b4d1e-9f3a-4b8e-a2d7-0f1e6c3b9a47",
+    "name": "Forced Subtitles",
+    "overview": "Download missing forced and foreign-language subtitles from OpenSubtitles.com",
+    "description": "Checks your libraries for missing subtitles. English-audio videos get a forced subtitle when one exists; foreign-audio videos get a full subtitle.",
+    "owner": "TNT24",
+    "category": "Subtitles",
+    "imageUrl": "https://raw.githubusercontent.com/TNT24/jellyfin-forced-subtitles/main/assets/logo.png",
+    "versions": [
+      {
+        "version": "1.1.0.0",
+        "changelog": "Built-in API key, reuse OpenSubtitles plugin login, save location setting, logo, Jellyfin 10.11 support",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/TNT24/jellyfin-forced-subtitles/releases/download/v1.1.0.0/ForcedSubtitles_1.1.0.0_jellyfin-12.zip",
+        "checksum": "48e66ab46c5028f9b1f27760435e5e62",
+        "timestamp": "2026-10-11T00:00:00Z"
+      },
+      {
+        "version": "1.1.0.0",
+        "changelog": "Built-in API key, reuse OpenSubtitles plugin login, save location setting, logo, Jellyfin 10.11 support",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/TNT24/jellyfin-forced-subtitles/releases/download/v1.1.0.0/ForcedSubtitles_1.1.0.0_jellyfin-10.11.zip",
+        "checksum": "54307ffb04371e6dbca1fb0b56c428ff",
+        "timestamp": "2026-10-11T00:00:00Z"
+      }
+    ]
+  }
+]

@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Forced Subtitles</title>
+</head>
+<body>
+    <div id="ForcedSubsConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
+        <style>
+            #ForcedSubsConfigPage .fs-header { display: flex; align-items: center; gap: 1.2em; margin: 1em 0 1.5em; }
+            #ForcedSubsConfigPage .fs-logo { width: 192px; aspect-ratio: 16 / 9; border-radius: 10px; object-fit: cover; box-shadow: 0 4px 18px rgba(0,0,0,.35); }
+            #ForcedSubsConfigPage .fs-header h1 { margin: 0 0 .2em; }
+            #ForcedSubsConfigPage .fs-status { padding: .8em 1em; border-radius: 8px; background: rgba(255,255,255,.05); margin: .5em 0 1em; line-height: 1.6; }
+            #ForcedSubsConfigPage .fs-ok { color: #6fcf73; }
+            #ForcedSubsConfigPage .fs-warn { color: #ffb74d; }
+            #ForcedSubsConfigPage .fs-bad { color: #ef5350; }
+            #ForcedSubsConfigPage .fs-buttons { display: flex; flex-wrap: wrap; gap: .6em; margin-top: .8em; }
+            #ForcedSubsConfigPage .fs-buttons button { margin: 0; }
+            #ForcedSubsConfigPage .fs-tag { display: inline-block; min-width: 6.5em; font-size: .8em; font-weight: 600; padding: .15em .5em; border-radius: 4px; margin-right: .6em; text-align: center; }
+            #ForcedSubsConfigPage .fs-tag-Downloaded { background: #2e7d32; }
+            #ForcedSubsConfigPage .fs-tag-NotFound { background: #555; }
+            #ForcedSubsConfigPage .fs-tag-Error { background: #c62828; }
+            @media (max-width: 600px) { #ForcedSubsConfigPage .fs-header { flex-direction: column; align-items: flex-start; } }
+        </style>
+        <div data-role="content">
+            <div class="content-primary">
+                <div class="fs-header">
+                    <img id="FsLogo" class="fs-logo" alt="" hidden />
+                    <div>
+                        <h1>Forced Subtitles</h1>
+                        <div class="fieldDescription">Fills in missing subtitles from OpenSubtitles.com: forced subtitles for foreign dialogue, and full subtitles for foreign-language films.</div>
+                    </div>
+                </div>
+
+                <form id="ForcedSubsConfigForm">
+                    <div class="verticalSection">
+                        <h2 class="sectionTitle">OpenSubtitles.com account</h2>
+                        <div id="FsStatus" class="fs-status">Checking…</div>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="Username">Username</label>
+                            <input id="Username" type="text" is="emby-input" autocomplete="off" />
+                            <div class="fieldDescription">Leave blank to use the login from the OpenSubtitles plugin, if you have it installed.</div>
+                        </div>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="Password">Password</label>
+                            <input id="Password" type="password" is="emby-input" autocomplete="new-password" />
+                        </div>
+                        <details>
+                            <summary class="fieldDescription" style="cursor:pointer">Advanced: custom API key</summary>
+                            <div class="inputContainer" style="margin-top:1em">
+                                <label class="inputLabel inputLabelUnfocused" for="ApiKey">API key</label>
+                                <input id="ApiKey" type="text" is="emby-input" autocomplete="off" />
+                                <div class="fieldDescription">Only needed if this build has no built-in key. Create one at opensubtitles.com → Profile → API consumers.</div>
+                            </div>
+                        </details>
+                        <div class="fs-buttons">
+                            <button is="emby-button" type="button" id="FsTest" class="raised emby-button"><span>Test connection</span></button>
+                        </div>
+                    </div>
+
+                    <div class="verticalSection">
+                        <h2 class="sectionTitle">What to download</h2>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="ForcedLanguage">Subtitle language</label>
+                            <input id="ForcedLanguage" type="text" is="emby-input" />
+                            <div class="fieldDescription">Three-letter code, e.g. <b>eng</b>.</div>
+                        </div>
+                        <div class="fieldDescription" style="margin-bottom:1em">
+                            <b>Audio in this language</b>: downloads a <b>forced</b> subtitle (foreign dialogue only) if the video has none.
+                            If OpenSubtitles has no forced subtitle for it, nothing is downloaded.
+                        </div>
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input id="DownloadFullWhenAudioForeign" type="checkbox" is="emby-checkbox" />
+                                <span>Download full subtitles when the audio is in another language</span>
+                            </label>
+                            <div class="fieldDescription checkboxFieldDescription">For example a French film with no English subtitle track.</div>
+                        </div>
+                        <div class="checkboxContainer">
+                            <label class="emby-checkbox-label">
+                                <input id="ScanMovies" type="checkbox" is="emby-checkbox" />
+                                <span>Movies</span>
+                            </label>
+                        </div>
+                        <div class="checkboxContainer">
+                            <label class="emby-checkbox-label">
+                                <input id="ScanEpisodes" type="checkbox" is="emby-checkbox" />
+                                <span>TV episodes</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="verticalSection">
+                        <h2 class="sectionTitle">Libraries</h2>
+                        <div class="fieldDescription">Pick the libraries to check. If none are ticked, every library is checked.</div>
+                        <div id="LibraryList" style="margin-top:.5em"></div>
+                    </div>
+
+                    <div class="verticalSection">
+                        <h2 class="sectionTitle">Where to save</h2>
+                        <div class="selectContainer">
+                            <label class="selectLabel" for="SaveLocation">Save subtitles to</label>
+                            <select is="emby-select" id="SaveLocation" class="emby-select-withcolor emby-select">
+                                <option value="MetadataFolder">Jellyfin's metadata folder (media folders stay clean)</option>
+                                <option value="MediaFolder">Next to the video file</option>
+                                <option value="LibrarySetting">Follow each library's setting</option>
+                            </select>
+                            <div class="fieldDescription">Jellyfin only reads subtitles from these places. Choose "next to the video" if other players (VLC, Plex, …) also need them.</div>
+                        </div>
+                    </div>
+
+                    <div class="verticalSection">
+                        <h2 class="sectionTitle">When to run</h2>
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input id="CheckOnLibraryScan" type="checkbox" is="emby-checkbox" />
+                                <span>Check new videos after each library scan</span>
+                            </label>
+                            <div class="fieldDescription checkboxFieldDescription">Full checks run from the "Download missing forced subtitles" scheduled task (daily at 3am by default, under Scheduled Tasks → Subtitles).</div>
+                        </div>
+                    </div>
+
+                    <div class="verticalSection">
+                        <h2 class="sectionTitle">Matching</h2>
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input id="RequireHashMatch" type="checkbox" is="emby-checkbox" />
+                                <span>Only accept exact file-hash matches</span>
+                            </label>
+                            <div class="fieldDescription checkboxFieldDescription">Guarantees sync but finds far fewer subtitles.</div>
+                        </div>
+                        <div class="checkboxContainer">
+                            <label class="emby-checkbox-label">
+                                <input id="SkipMachineTranslated" type="checkbox" is="emby-checkbox" />
+                                <span>Skip AI or machine translated subtitles</span>
+                            </label>
+                        </div>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="RecheckAfterDays">Re-search after (days)</label>
+                            <input id="RecheckAfterDays" type="number" min="1" is="emby-input" />
+                            <div class="fieldDescription">How long to wait before searching again for a video where nothing was found.</div>
+                        </div>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="MaxDownloadsPerRun">Max downloads per run</label>
+                            <input id="MaxDownloadsPerRun" type="number" min="1" is="emby-input" />
+                            <div class="fieldDescription">Free accounts get about 20 per day.</div>
+                        </div>
+                    </div>
+
+                    <button is="emby-button" type="submit" class="raised button-submit block emby-button"><span>Save</span></button>
+                </form>
+
+                <div class="verticalSection" style="margin-top:2em">
+                    <h2 class="sectionTitle">Results</h2>
+                    <div id="ReportCounts" class="fieldDescription"></div>
+                    <div class="fs-buttons">
+                        <button is="emby-button" type="button" id="FsRun" class="raised emby-button"><span>Run now</span></button>
+                        <button is="emby-button" type="button" id="FsRefresh" class="raised emby-button"><span>Refresh</span></button>
+                        <button is="emby-button" type="button" id="ResetHistory" class="raised emby-button"><span>Forget history</span></button>
+                    </div>
+                    <div id="ReportList" style="max-height:30em;overflow-y:auto;margin-top:1em"></div>
+                </div>
+            </div>
+        </div>
+        <script type="text/javascript">
+            (function () {
+                var pluginId = '5c6b4d1e-9f3a-4b8e-a2d7-0f1e6c3b9a47';
+                var page = document.querySelector('#ForcedSubsConfigPage');
+                var textFields = ['ApiKey', 'Username', 'Password', 'ForcedLanguage', 'RecheckAfterDays', 'MaxDownloadsPerRun', 'SaveLocation'];
+                var boolFields = ['DownloadFullWhenAudioForeign', 'ScanMovies', 'ScanEpisodes', 'CheckOnLibraryScan', 'RequireHashMatch', 'SkipMachineTranslated'];
+                var labels = { Downloaded: 'Downloaded', NotFound: 'None available', Error: 'Error' };
+
+                function $(sel) { return page.querySelector(sel); }
+
+                function esc(s) {
+                    var d = document.createElement('div');
+                    d.textContent = s == null ? '' : String(s);
+                    return d.innerHTML;
+                }
+
+                function post(path) {
+                    return ApiClient.ajax({ type: 'POST', url: ApiClient.getUrl(path), dataType: 'json' });
+                }
+
+                function loadLogo() {
+                    ApiClient.getInstalledPlugins().then(function (plugins) {
+                        var me = plugins.filter(function (p) { return p.Id.replace(/-/g, '') === pluginId.replace(/-/g, ''); })[0];
+                        if (me && me.HasImage) {
+                            var img = $('#FsLogo');
+                            img.src = ApiClient.getUrl('Plugins/' + me.Id + '/' + me.Version + '/Image');
+                            img.hidden = false;
+                        }
+                    });
+                }
+
+                function loadStatus() {
+                    return ApiClient.getJSON(ApiClient.getUrl('ForcedSubtitles/Status')).then(function (s) {
+                        var key = s.ApiKeySource === 'none'
+                            ? '<span class="fs-bad">✗ No API key. Enter one under Advanced.</span>'
+                            : '<span class="fs-ok">✓ API key: ' + esc(s.ApiKeySource) + '</span>';
+                        var login = s.LoginSource === 'none'
+                            ? '<span class="fs-warn">! No login yet. Enter your OpenSubtitles username and password.</span>'
+                            : '<span class="fs-ok">✓ Login: ' + esc(s.Username) + ' (from ' + esc(s.LoginSource) + ')</span>';
+                        $('#FsStatus').innerHTML = key + '<br>' + login;
+                    });
+                }
+
+                function loadLibraries(selected) {
+                    return ApiClient.getVirtualFolders().then(function (folders) {
+                        var html = folders
+                            .filter(function (f) { return !f.CollectionType || ['movies', 'tvshows', 'mixed', 'homevideos'].indexOf(f.CollectionType) !== -1; })
+                            .map(function (f) {
+                                var checked = selected.indexOf(f.ItemId) !== -1 ? ' checked' : '';
+                                return '<div class="checkboxContainer"><label class="emby-checkbox-label">' +
+                                    '<input type="checkbox" is="emby-checkbox" class="libraryCheck" data-id="' + esc(f.ItemId) + '"' + checked + ' />' +
+                                    '<span>' + esc(f.Name) + '</span></label></div>';
+                            }).join('');
+                        $('#LibraryList').innerHTML = html || '<div class="fieldDescription">No libraries found.</div>';
+                    });
+                }
+
+                function loadReport() {
+                    return ApiClient.getJSON(ApiClient.getUrl('ForcedSubtitles/Report')).then(function (r) {
+                        var c = r.Counts || {};
+                        $('#ReportCounts').textContent =
+                            'Already had subtitles: ' + (c.AlreadyHas || 0) +
+                            ' · Downloaded: ' + (c.Downloaded || 0) +
+                            ' · None available: ' + (c.NotFound || 0) +
+                            ' · Errors: ' + (c.Error || 0);
+                        $('#ReportList').innerHTML = (r.Recent || []).map(function (x) {
+                            return '<div class="listItem"><div class="listItemBody">' +
+                                '<div class="listItemBodyText"><span class="fs-tag fs-tag-' + esc(x.Status) + '">' + esc(labels[x.Status] || x.Status) + '</span>' + esc(x.Name) + '</div>' +
+                                '<div class="listItemBodyText secondary">' + esc(x.Detail) + ' · ' + esc(new Date(x.LastChecked).toLocaleString()) + '</div></div></div>';
+                        }).join('');
+                    }, function () {
+                        $('#ReportCounts').textContent = 'No results yet.';
+                    });
+                }
+
+                page.addEventListener('pageshow', function () {
+                    Dashboard.showLoadingMsg();
+                    loadLogo();
+                    ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                        textFields.forEach(function (k) { $('#' + k).value = config[k] == null ? '' : config[k]; });
+                        boolFields.forEach(function (k) { $('#' + k).checked = !!config[k]; });
+                        return Promise.all([loadLibraries(config.LibraryIds || []), loadReport(), loadStatus()]);
+                    }).finally(function () { Dashboard.hideLoadingMsg(); });
+                });
+
+                $('#ForcedSubsConfigForm').addEventListener('submit', function (e) {
+                    e.preventDefault();
+                    Dashboard.showLoadingMsg();
+                    ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                        textFields.forEach(function (k) { config[k] = $('#' + k).value.trim(); });
+                        config.RecheckAfterDays = parseInt(config.RecheckAfterDays, 10) || 14;
+                        config.MaxDownloadsPerRun = parseInt(config.MaxDownloadsPerRun, 10) || 20;
+                        boolFields.forEach(function (k) { config[k] = $('#' + k).checked; });
+                        config.LibraryIds = Array.prototype.map.call(page.querySelectorAll('.libraryCheck:checked'), function (el) { return el.getAttribute('data-id'); });
+                        return ApiClient.updatePluginConfiguration(pluginId, config);
+                    }).then(function (result) {
+                        Dashboard.processPluginConfigurationUpdateResult(result);
+                        loadStatus();
+                    });
+                    return false;
+                });
+
+                $('#FsTest').addEventListener('click', function () {
+                    $('#FsStatus').textContent = 'Testing… (save first if you changed the login)';
+                    post('ForcedSubtitles/Test').then(function (r) {
+                        return loadStatus().then(function () {
+                            $('#FsStatus').innerHTML += '<br><span class="' + (r.Ok ? 'fs-ok">✓ ' : 'fs-bad">✗ ') + esc(r.Message) + '</span>';
+                        });
+                    });
+                });
+
+                $('#FsRun').addEventListener('click', function () {
+                    post('ForcedSubtitles/Run').finally(function () {
+                        Dashboard.alert('Check started in the background. Press Refresh in a minute to see results.');
+                    });
+                });
+
+                $('#FsRefresh').addEventListener('click', loadReport);
+
+                $('#ResetHistory').addEventListener('click', function () {
+                    post('ForcedSubtitles/Reset').finally(loadReport);
+                });
+            })();
+        </script>
+    </div>
+</body>
+</html>
