@@ -1,7 +1,7 @@
 ---
 name: "Forced Subtitles"
 guid: "5c6b4d1e-9f3a-4b8e-a2d7-0f1e6c3b9a47"
-version: "1.1.0.0"
+version: "1.2.0.12"
 targetAbi: "12.0.0.0"
 framework: "net10.0"
 overview: "Download missing forced and foreign-language subtitles from OpenSubtitles.com"
@@ -12,5 +12,5 @@ category: "Subtitles"
 owner: "local"
 artifacts:
 - "Jellyfin.Plugin.ForcedSubtitles.dll"
-changelog: "Built-in API key, reuse OpenSubtitles plugin login, save location setting, logo"
+changelog: "Respects the daily download limit, retries failures after a day, read-only media folder fallback, log panel on the settings page"
 imagePath: "assets\/logo.png"

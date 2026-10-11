@@ -8,7 +8,10 @@
 # or set OPENSUBTITLES_API_KEY. Users then only need a username and password.
 set -e
 cd "$(dirname "$0")"
-VERSION=1.1.0.0
+# Each Jellyfin line gets its own last version number (….12 / ….11) so a Jellyfin 12 server, which can
+# also install 10.11 builds, always picks the newer 12 build.
+BASE_VERSION=1.2.0
+CHANGELOG="Respects the daily download limit, retries failures after a day, read-only media folder fallback, log panel on the settings page"
 
 KEY="${OPENSUBTITLES_API_KEY:-}"
 if [ -z "$KEY" ] && [ -f opensubtitles-api-key.txt ]; then
@@ -23,6 +26,7 @@ rm -rf dist
 build() {
   TARGET="$1"   # 12 or 10.11
   ABI="$2"      # targetAbi for meta.json
+  VERSION="$BASE_VERSION.$3"
   NAME="ForcedSubtitles_$VERSION"
   DIR="dist/jellyfin-$TARGET"
   OUT="$DIR/$NAME"
@@ -37,7 +41,7 @@ build() {
   cat > "$OUT/meta.json" <<JSON
 {
   "category": "Subtitles",
-  "changelog": "Built-in API key, reuse OpenSubtitles plugin login, save location setting, logo, Jellyfin 10.11 support",
+  "changelog": "$CHANGELOG",
   "description": "Checks your libraries for missing subtitles. English-audio videos get a forced subtitle when one exists; foreign-audio videos get a full subtitle.",
   "guid": "5c6b4d1e-9f3a-4b8e-a2d7-0f1e6c3b9a47",
   "name": "Forced Subtitles",
@@ -63,5 +67,5 @@ JSON
   echo "Built $OUT"
 }
 
-build 12 12.0.0.0
-build 10.11 10.11.0.0
+build 12 12.0.0.0 12
+build 10.11 10.11.0.0 11

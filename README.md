@@ -165,7 +165,9 @@ releases on this repo are built without a key.
 
 ### Publishing a release
 
-1. Bump `VERSION` in `package.sh` and `version` in `build.yaml`, then run `sh package.sh`.
+1. Bump `BASE_VERSION` and `CHANGELOG` in `package.sh` (and `version` in `build.yaml`), then run `sh package.sh`.
+   Builds get `<base>.12` for Jellyfin 12 and `<base>.11` for 10.11, so a Jellyfin 12 server always picks its own
+   build.
 2. Add a new entry to the `versions` list in `manifest.json` for each zip, with the new `version`, `sourceUrl` and
    `checksum` (`md5sum dist/*/*.zip`). Put the newest entries first, with the Jellyfin 12 entry above the 10.11 one.
 3. Create the GitHub release and attach both zips:
