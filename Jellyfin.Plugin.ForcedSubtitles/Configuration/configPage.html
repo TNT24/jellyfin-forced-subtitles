@@ -286,26 +286,33 @@
                     }).finally(function () { Dashboard.hideLoadingMsg(); });
                 });
 
-                $('#ForcedSubsConfigForm').addEventListener('submit', function (e) {
-                    e.preventDefault();
-                    Dashboard.showLoadingMsg();
-                    ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                function saveConfig() {
+                    return ApiClient.getPluginConfiguration(pluginId).then(function (config) {
                         textFields.forEach(function (k) { config[k] = $('#' + k).value.trim(); });
                         config.RecheckAfterDays = parseInt(config.RecheckAfterDays, 10) || 14;
                         config.MaxDownloadsPerRun = parseInt(config.MaxDownloadsPerRun, 10) || 20;
                         boolFields.forEach(function (k) { config[k] = $('#' + k).checked; });
                         config.LibraryIds = Array.prototype.map.call(page.querySelectorAll('.libraryCheck:checked'), function (el) { return el.getAttribute('data-id'); });
                         return ApiClient.updatePluginConfiguration(pluginId, config);
-                    }).then(function (result) {
+                    });
+                }
+
+                $('#ForcedSubsConfigForm').addEventListener('submit', function (e) {
+                    e.preventDefault();
+                    Dashboard.showLoadingMsg();
+                    saveConfig().then(function (result) {
                         Dashboard.processPluginConfigurationUpdateResult(result);
                         loadStatus();
                     });
                     return false;
                 });
 
+                // Test what's on the page, not what was last saved: save first.
                 $('#FsTest').addEventListener('click', function () {
-                    $('#FsStatus').textContent = 'Testing… (save first if you changed the login)';
-                    post('ForcedSubtitles/Test').then(function (r) {
+                    $('#FsStatus').textContent = 'Saving and testing…';
+                    saveConfig().then(function () {
+                        return post('ForcedSubtitles/Test');
+                    }).then(function (r) {
                         return loadStatus().then(function () {
                             $('#FsStatus').innerHTML += '<br><span class="' + (r.Ok ? 'fs-ok">✓ ' : 'fs-bad">✗ ') + esc(r.Message) + '</span>';
                         });

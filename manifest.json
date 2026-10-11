@@ -9,6 +9,22 @@
     "imageUrl": "https://raw.githubusercontent.com/TNT24/jellyfin-forced-subtitles/main/assets/logo.png",
     "versions": [
       {
+        "version": "1.2.1.12",
+        "changelog": "Test connection now saves the settings first, so a newly entered API key or login is used",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/TNT24/jellyfin-forced-subtitles/releases/download/v1.2.1/ForcedSubtitles_1.2.1.12_jellyfin-12.zip",
+        "checksum": "8f3c9af7b69a5e9c606eb76b9ed889ee",
+        "timestamp": "2026-10-11T00:00:00Z"
+      },
+      {
+        "version": "1.2.1.11",
+        "changelog": "Test connection now saves the settings first, so a newly entered API key or login is used",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/TNT24/jellyfin-forced-subtitles/releases/download/v1.2.1/ForcedSubtitles_1.2.1.11_jellyfin-10.11.zip",
+        "checksum": "2cd1772eaed52a8d9b5a230a963fe9df",
+        "timestamp": "2026-10-11T00:00:00Z"
+      },
+      {
         "version": "1.2.0.12",
         "changelog": "Respects the daily download limit, retries failures after a day, read-only media folder fallback, log panel on the settings page",
         "targetAbi": "12.0.0.0",

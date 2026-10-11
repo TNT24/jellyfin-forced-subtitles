@@ -10,8 +10,8 @@ set -e
 cd "$(dirname "$0")"
 # Each Jellyfin line gets its own last version number (….12 / ….11) so a Jellyfin 12 server, which can
 # also install 10.11 builds, always picks the newer 12 build.
-BASE_VERSION=1.2.0
-CHANGELOG="Respects the daily download limit, retries failures after a day, read-only media folder fallback, log panel on the settings page"
+BASE_VERSION=1.2.1
+CHANGELOG="Test connection now saves the settings first, so a newly entered API key or login is used"
 
 KEY="${OPENSUBTITLES_API_KEY:-}"
 if [ -z "$KEY" ] && [ -f opensubtitles-api-key.txt ]; then
