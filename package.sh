@@ -10,8 +10,8 @@ set -e
 cd "$(dirname "$0")"
 # Each Jellyfin line gets its own last version number (….12 / ….11) so a Jellyfin 12 server, which can
 # also install 10.11 builds, always picks the newer 12 build.
-BASE_VERSION=1.2.2
-CHANGELOG="Notifies in the Jellyfin activity log when the daily download limit is reached and resumes automatically when it renews, even after a restart; login fields show the OpenSubtitles plugin login"
+BASE_VERSION=1.2.3
+CHANGELOG="Updates now install automatically through Jellyfin's Update Plugins task"
 
 KEY="${OPENSUBTITLES_API_KEY:-}"
 if [ -z "$KEY" ] && [ -f opensubtitles-api-key.txt ]; then
@@ -51,7 +51,7 @@ build() {
   "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "version": "$VERSION",
   "status": "Active",
-  "autoUpdate": false,
+  "autoUpdate": true,
   "imagePath": "logo.png",
   "assemblies": []
 }
