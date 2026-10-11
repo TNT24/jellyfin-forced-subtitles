@@ -21,5 +21,6 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<ScanStore>();
         serviceCollection.AddSingleton<SubtitleSaver>();
         serviceCollection.AddSingleton<ForcedSubtitleProcessor>();
+        serviceCollection.AddHostedService<DownloadLimitMonitor>();
     }
 }

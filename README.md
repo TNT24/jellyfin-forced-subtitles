@@ -132,7 +132,9 @@ so no forced subtitle is needed.
 OpenSubtitles limits how many subtitles each account can download a day; **Test connection** shows your allowance.
 The official OpenSubtitles plugin uses the same allowance if it's logged in with the same account. Searches don't
 count. When the allowance runs out, the run stops straight away, and later runs (including the ones after library
-scans) are skipped until OpenSubtitles says it has renewed. The next run then picks up where it left off.
+scans) are skipped until OpenSubtitles says it has renewed. Jellyfin's activity log (Dashboard → **Activity**) gets an
+entry when that happens, and another when downloads resume: about five minutes after the renewal the plugin starts a
+check by itself and picks up where it left off. This survives a server restart.
 
 **What if something fails?**
 The video is marked as an error in the Results panel and tried again after a day, so a problem that won't go away

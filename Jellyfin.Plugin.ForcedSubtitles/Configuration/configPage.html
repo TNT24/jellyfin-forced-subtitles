@@ -46,7 +46,7 @@
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="Username">Username</label>
                             <input id="Username" type="text" is="emby-input" autocomplete="off" />
-                            <div class="fieldDescription">Leave blank to use the login from the OpenSubtitles plugin, if you have it installed.</div>
+                            <div class="fieldDescription">Leave blank to use the login from the OpenSubtitles plugin, if you have it installed (shown greyed out when in use).</div>
                         </div>
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="Password">Password</label>
@@ -220,13 +220,19 @@
                             : '<span class="fs-ok">✓ Login: ' + esc(s.Username) + ' (from ' + esc(s.LoginSource) + ')</span>';
                         var extra = '';
                         if (s.DownloadsBlockedUntil) {
-                            extra += '<br><span class="fs-warn">! Daily download limit used up. Downloads resume at ' +
+                            extra += '<br><span class="fs-warn">! Daily download limit used up. Downloads resume automatically after ' +
                                 esc(new Date(s.DownloadsBlockedUntil).toLocaleString()) + '.</span>';
                         }
                         if (s.IsRunning) {
                             extra += '<br><span class="fs-ok">A check is running now.</span>';
                         }
                         $('#FsStatus').innerHTML = key + '<br>' + login + extra;
+
+                        // Show the borrowed login as placeholders, so the fields don't look empty. The password
+                        // itself never reaches the page, and blank fields keep using the OpenSubtitles plugin's login.
+                        var borrowed = s.LoginSource === 'OpenSubtitles plugin';
+                        $('#Username').placeholder = borrowed ? s.Username : '';
+                        $('#Password').placeholder = borrowed ? '••••••••' : '';
                     });
                 }
 

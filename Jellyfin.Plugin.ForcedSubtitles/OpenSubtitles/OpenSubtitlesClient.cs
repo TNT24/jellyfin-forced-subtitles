@@ -11,6 +11,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.ForcedSubtitles.Configuration;
+using MediaBrowser.Common.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.ForcedSubtitles.OpenSubtitles;
@@ -36,6 +37,7 @@ public sealed class OpenSubtitlesClient : IDisposable
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<OpenSubtitlesClient> _logger;
     private readonly CredentialsProvider _credentials;
+    private readonly string _blockFile;
     private readonly SemaphoreSlim _requestLock = new(1, 1);
     private readonly SemaphoreSlim _loginLock = new(1, 1);
 
@@ -53,13 +55,25 @@ public sealed class OpenSubtitlesClient : IDisposable
     /// Initializes a new instance of the <see cref="OpenSubtitlesClient"/> class.
     /// </summary>
     /// <param name="httpClientFactory">HTTP client factory.</param>
+    /// <param name="credentials">Credentials provider.</param>
+    /// <param name="paths">Application paths.</param>
     /// <param name="logger">Logger.</param>
-    public OpenSubtitlesClient(IHttpClientFactory httpClientFactory, CredentialsProvider credentials, ILogger<OpenSubtitlesClient> logger)
+    public OpenSubtitlesClient(IHttpClientFactory httpClientFactory, CredentialsProvider credentials, IApplicationPaths paths, ILogger<OpenSubtitlesClient> logger)
     {
         _httpClientFactory = httpClientFactory;
         _logger = logger;
         _credentials = credentials;
+
+        // Remember a used-up allowance across restarts, so a restart doesn't spend a request finding out again.
+        _blockFile = Path.Combine(paths.PluginConfigurationsPath, "ForcedSubtitles", "download-limit.txt");
+        _downloadsBlockedUntil = ReadBlockedUntil(_blockFile) ?? DateTime.MinValue;
     }
+
+    /// <summary>
+    /// Raised when the daily download allowance runs out (not again while it stays used up),
+    /// with the time (UTC) it renews.
+    /// </summary>
+    public event EventHandler<DateTime>? DownloadsBlocked;
 
     /// <summary>Gets the credentials currently in use.</summary>
     public OpenSubtitlesCredentials Credentials => _credentials.Get();
@@ -288,11 +302,62 @@ public sealed class OpenSubtitlesClient : IDisposable
         return now + QuotaFallbackWait;
     }
 
+    /// <summary>Reads a saved "blocked until" time; null if there is none or it can't be read.</summary>
+    internal static DateTime? ReadBlockedUntil(string path)
+    {
+        try
+        {
+            return File.Exists(path)
+                && DateTime.TryParse(File.ReadAllText(path).Trim(), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var until)
+                && until.Kind == DateTimeKind.Utc
+                    ? until
+                    : null;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Saves a "blocked until" time (UTC).</summary>
+    internal static void WriteBlockedUntil(string path, DateTime until)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, until.ToString("o", CultureInfo.InvariantCulture));
+    }
+
     private void BlockDownloads(DateTime? resetTimeUtc)
     {
+        var wasBlocked = DownloadsBlockedUntil is not null;
         var until = GetDownloadsBlockedUntil(resetTimeUtc, DateTime.UtcNow);
         _downloadsBlockedUntil = until;
         _logger.LogInformation("OpenSubtitles download allowance used up; pausing downloads until {Until:yyyy-MM-dd HH:mm} UTC", until);
+
+        try
+        {
+            WriteBlockedUntil(_blockFile, until);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning(ex, "Could not save the download limit to {Path}", _blockFile);
+        }
+
+        if (!wasBlocked)
+        {
+            // A listener's failure mustn't turn a successful download into an error.
+            try
+            {
+                DownloadsBlocked?.Invoke(this, until);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Download limit listener failed");
+            }
+        }
     }
 
     private static async Task EnsureSuccessAsync(HttpResponseMessage response, CancellationToken cancellationToken)

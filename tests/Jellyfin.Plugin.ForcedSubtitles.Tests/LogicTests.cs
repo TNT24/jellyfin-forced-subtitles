@@ -271,3 +271,55 @@ public class QuotaResetTests
         Assert.Equal(Now.AddHours(1), OpenSubtitlesClient.GetDownloadsBlockedUntil(Now.AddMinutes(-5), Now));
     }
 }
+
+public class DownloadLimitPersistenceTests
+{
+    private static readonly System.DateTime Now = new(2026, 10, 11, 12, 0, 0, System.DateTimeKind.Utc);
+
+    [Fact]
+    public void SavedTime_RoundTripsAsUtc()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName(), "download-limit.txt");
+        try
+        {
+            var until = new System.DateTime(2026, 10, 11, 18, 30, 0, System.DateTimeKind.Utc);
+            OpenSubtitlesClient.WriteBlockedUntil(path, until);
+            var read = OpenSubtitlesClient.ReadBlockedUntil(path);
+            Assert.Equal(until, read);
+            Assert.Equal(System.DateTimeKind.Utc, read!.Value.Kind);
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(path)!, true);
+        }
+    }
+
+    [Fact]
+    public void MissingOrGarbledFile_ReadsAsNotBlocked()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        Assert.Null(OpenSubtitlesClient.ReadBlockedUntil(path));
+        try
+        {
+            File.WriteAllText(path, "not a date");
+            Assert.Null(OpenSubtitlesClient.ReadBlockedUntil(path));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void ResumeWait_IsFiveMinutesAfterReset()
+    {
+        Assert.Equal(System.TimeSpan.FromMinutes(65), DownloadLimitMonitor.GetResumeWait(Now.AddHours(1), Now));
+    }
+
+    [Fact]
+    public void ResumeWait_IsZeroOnceRenewed_AndCappedWhenFarOff()
+    {
+        Assert.Equal(System.TimeSpan.Zero, DownloadLimitMonitor.GetResumeWait(Now.AddHours(-1), Now));
+        Assert.Equal(System.TimeSpan.FromDays(2), DownloadLimitMonitor.GetResumeWait(Now.AddDays(30), Now));
+    }
+}
