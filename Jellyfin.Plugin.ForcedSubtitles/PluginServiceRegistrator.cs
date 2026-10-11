@@ -14,6 +14,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
     /// <inheritdoc />
     public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
     {
+        serviceCollection.AddSingleton<ActivityLog>();
         serviceCollection.AddSingleton<CredentialsProvider>();
         serviceCollection.AddSingleton<OpenSubtitlesClient>();
         serviceCollection.AddSingleton<SubtitleInspector>();

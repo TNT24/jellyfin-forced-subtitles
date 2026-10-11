@@ -38,6 +38,9 @@ public sealed class ScanRecord
 
     /// <summary>Gets or sets a human readable detail.</summary>
     public string? Detail { get; set; }
+
+    /// <summary>Gets or sets the subtitle file written, for <see cref="ScanStatus.Downloaded"/>.</summary>
+    public string? SavedPath { get; set; }
 }
 
 /// <summary>
@@ -93,6 +96,24 @@ public sealed class ScanStore
         lock (_lock)
         {
             return Load().ToList();
+        }
+    }
+
+    /// <summary>Removes records whose item no longer exists.</summary>
+    /// <param name="exists">Returns whether an item id still exists.</param>
+    /// <returns>How many records were removed.</returns>
+    public int RemoveWhereMissing(Func<Guid, bool> exists)
+    {
+        lock (_lock)
+        {
+            var records = Load();
+            var gone = records.Keys.Where(id => !exists(id)).ToList();
+            foreach (var id in gone)
+            {
+                records.Remove(id);
+            }
+
+            return gone.Count;
         }
     }
 

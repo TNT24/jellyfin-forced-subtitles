@@ -193,3 +193,81 @@ public class RetryDelayTests
         Assert.Equal(System.TimeSpan.FromSeconds(2), OpenSubtitlesClient.GetRetryDelay(header, 1, Now));
     }
 }
+
+public class SearchAgainTests
+{
+    private static readonly System.DateTime Now = new(2026, 10, 11, 12, 0, 0, System.DateTimeKind.Utc);
+    private static readonly PluginConfiguration Config = new() { RecheckAfterDays = 14 };
+
+    private static bool Search(ScanStatus? status, double hoursAgo, string? detail = null, string? savedPath = null, bool fileExists = true)
+    {
+        var record = status is null ? null : new ScanRecord
+        {
+            Status = status.Value,
+            LastChecked = Now.AddHours(-hoursAgo),
+            Detail = detail,
+            SavedPath = savedPath
+        };
+        return ForcedSubtitleProcessor.ShouldSearch(record, Config, Now, _ => fileExists);
+    }
+
+    [Fact]
+    public void NeverChecked_Searches() => Assert.True(Search(null, 0));
+
+    [Fact]
+    public void HadSubtitleBefore_Searches() => Assert.True(Search(ScanStatus.AlreadyHas, 1));
+
+    [Fact]
+    public void Downloaded_FileStillThere_Waits() => Assert.False(Search(ScanStatus.Downloaded, 1, savedPath: "a.srt"));
+
+    [Fact]
+    public void Downloaded_FileDeleted_Searches() => Assert.True(Search(ScanStatus.Downloaded, 1, savedPath: "a.srt", fileExists: false));
+
+    [Fact]
+    public void Downloaded_OldRecordWithoutPath_Waits() => Assert.False(Search(ScanStatus.Downloaded, 1000));
+
+    [Fact]
+    public void NotFound_WaitsRecheckDays()
+    {
+        Assert.False(Search(ScanStatus.NotFound, 13 * 24));
+        Assert.True(Search(ScanStatus.NotFound, 14 * 24));
+    }
+
+    [Fact]
+    public void Error_WaitsOneDay()
+    {
+        Assert.False(Search(ScanStatus.Error, 23, "Access denied"));
+        Assert.True(Search(ScanStatus.Error, 24, "Access denied"));
+    }
+
+    [Fact]
+    public void QuotaError_RetriesNextRun() => Assert.True(Search(ScanStatus.Error, 1, "Quota reached, will retry next run"));
+}
+
+public class QuotaResetTests
+{
+    private static readonly System.DateTime Now = new(2026, 10, 11, 12, 0, 0, System.DateTimeKind.Utc);
+
+    [Fact]
+    public void UtcResetTime_IsUsed()
+    {
+        var reset = new System.DateTime(2026, 10, 11, 18, 30, 0, System.DateTimeKind.Utc);
+        Assert.Equal(reset, OpenSubtitlesClient.GetDownloadsBlockedUntil(reset, Now));
+    }
+
+    [Fact]
+    public void ResetTimeWithoutZone_IsTreatedAsUtc()
+    {
+        var reset = new System.DateTime(2026, 10, 11, 18, 30, 0, System.DateTimeKind.Unspecified);
+        var until = OpenSubtitlesClient.GetDownloadsBlockedUntil(reset, Now);
+        Assert.Equal(System.DateTimeKind.Utc, until.Kind);
+        Assert.Equal(18, until.Hour);
+    }
+
+    [Fact]
+    public void MissingOrPastResetTime_WaitsAnHour()
+    {
+        Assert.Equal(Now.AddHours(1), OpenSubtitlesClient.GetDownloadsBlockedUntil(null, Now));
+        Assert.Equal(Now.AddHours(1), OpenSubtitlesClient.GetDownloadsBlockedUntil(Now.AddMinutes(-5), Now));
+    }
+}

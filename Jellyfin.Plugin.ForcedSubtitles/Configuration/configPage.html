@@ -20,6 +20,13 @@
             #ForcedSubsConfigPage .fs-tag-Downloaded { background: #2e7d32; }
             #ForcedSubsConfigPage .fs-tag-NotFound { background: #555; }
             #ForcedSubsConfigPage .fs-tag-Error { background: #c62828; }
+            #ForcedSubsConfigPage .fs-log { max-height: 24em; overflow-y: auto; margin-top: 1em; font-size: .9em; line-height: 1.5; }
+            #ForcedSubsConfigPage .fs-log-row { display: flex; gap: .8em; padding: .3em 0; border-bottom: 1px solid rgba(255,255,255,.06); }
+            #ForcedSubsConfigPage .fs-log-time { flex: none; opacity: .6; white-space: nowrap; }
+            #ForcedSubsConfigPage .fs-log-msg { overflow-wrap: anywhere; }
+            #ForcedSubsConfigPage .fs-log-Warning .fs-log-msg { color: #ffb74d; }
+            #ForcedSubsConfigPage .fs-log-Error .fs-log-msg { color: #ef5350; }
+            @media (max-width: 600px) { #ForcedSubsConfigPage .fs-log-row { flex-direction: column; gap: 0; } }
             @media (max-width: 600px) { #ForcedSubsConfigPage .fs-header { flex-direction: column; align-items: flex-start; } }
         </style>
         <div data-role="content">
@@ -143,7 +150,7 @@
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="MaxDownloadsPerRun">Max downloads per run</label>
                             <input id="MaxDownloadsPerRun" type="number" min="1" is="emby-input" />
-                            <div class="fieldDescription">Free accounts get about 20 per day.</div>
+                            <div class="fieldDescription">Keep this at or below your daily allowance. Test connection shows how many you get.</div>
                         </div>
                     </div>
 
@@ -159,6 +166,16 @@
                         <button is="emby-button" type="button" id="ResetHistory" class="raised emby-button"><span>Forget history</span></button>
                     </div>
                     <div id="ReportList" style="max-height:30em;overflow-y:auto;margin-top:1em"></div>
+                </div>
+
+                <div class="verticalSection" style="margin-top:2em">
+                    <h2 class="sectionTitle">Log</h2>
+                    <div class="fieldDescription">What the plugin has done since Jellyfin last started. The full history is in Jellyfin's server log (Dashboard → Logs).</div>
+                    <div class="fs-buttons">
+                        <button is="emby-button" type="button" id="FsLogRefresh" class="raised emby-button"><span>Refresh</span></button>
+                        <button is="emby-button" type="button" id="FsLogClear" class="raised emby-button"><span>Clear</span></button>
+                    </div>
+                    <div id="LogList" class="fs-log"></div>
                 </div>
             </div>
         </div>
@@ -201,7 +218,29 @@
                         var login = s.LoginSource === 'none'
                             ? '<span class="fs-warn">! No login yet. Enter your OpenSubtitles username and password.</span>'
                             : '<span class="fs-ok">✓ Login: ' + esc(s.Username) + ' (from ' + esc(s.LoginSource) + ')</span>';
-                        $('#FsStatus').innerHTML = key + '<br>' + login;
+                        var extra = '';
+                        if (s.DownloadsBlockedUntil) {
+                            extra += '<br><span class="fs-warn">! Daily download limit used up. Downloads resume at ' +
+                                esc(new Date(s.DownloadsBlockedUntil).toLocaleString()) + '.</span>';
+                        }
+                        if (s.IsRunning) {
+                            extra += '<br><span class="fs-ok">A check is running now.</span>';
+                        }
+                        $('#FsStatus').innerHTML = key + '<br>' + login + extra;
+                    });
+                }
+
+                function loadLog() {
+                    return ApiClient.getJSON(ApiClient.getUrl('ForcedSubtitles/Log')).then(function (entries) {
+                        $('#LogList').innerHTML = entries.length === 0
+                            ? '<div class="fieldDescription">Nothing logged yet.</div>'
+                            : entries.map(function (e) {
+                                return '<div class="fs-log-row fs-log-' + esc(e.Level) + '">' +
+                                    '<span class="fs-log-time">' + esc(new Date(e.Time).toLocaleString()) + '</span>' +
+                                    '<span class="fs-log-msg">' + esc(e.Message) + '</span></div>';
+                            }).join('');
+                    }, function () {
+                        $('#LogList').innerHTML = '<div class="fieldDescription">Could not load the log.</div>';
                     });
                 }
 
@@ -243,7 +282,7 @@
                     ApiClient.getPluginConfiguration(pluginId).then(function (config) {
                         textFields.forEach(function (k) { $('#' + k).value = config[k] == null ? '' : config[k]; });
                         boolFields.forEach(function (k) { $('#' + k).checked = !!config[k]; });
-                        return Promise.all([loadLibraries(config.LibraryIds || []), loadReport(), loadStatus()]);
+                        return Promise.all([loadLibraries(config.LibraryIds || []), loadReport(), loadStatus(), loadLog()]);
                     }).finally(function () { Dashboard.hideLoadingMsg(); });
                 });
 
@@ -274,15 +313,33 @@
                 });
 
                 $('#FsRun').addEventListener('click', function () {
-                    post('ForcedSubtitles/Run').finally(function () {
-                        Dashboard.alert('Check started in the background. Press Refresh in a minute to see results.');
+                    post('ForcedSubtitles/Run').then(function (r) {
+                        Dashboard.alert(r.Message);
+                    }, function () {
+                        Dashboard.alert('Could not start the check. See the log below.');
+                    }).finally(function () {
+                        loadStatus();
+                        loadLog();
                     });
                 });
 
-                $('#FsRefresh').addEventListener('click', loadReport);
+                $('#FsRefresh').addEventListener('click', function () {
+                    loadReport();
+                    loadStatus();
+                    loadLog();
+                });
 
                 $('#ResetHistory').addEventListener('click', function () {
-                    post('ForcedSubtitles/Reset').finally(loadReport);
+                    post('ForcedSubtitles/Reset').finally(function () {
+                        loadReport();
+                        loadLog();
+                    });
+                });
+
+                $('#FsLogRefresh').addEventListener('click', loadLog);
+
+                $('#FsLogClear').addEventListener('click', function () {
+                    ApiClient.ajax({ type: 'POST', url: ApiClient.getUrl('ForcedSubtitles/Log/Clear') }).finally(loadLog);
                 });
             })();
         </script>

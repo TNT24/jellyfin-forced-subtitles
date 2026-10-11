@@ -63,8 +63,13 @@ public class OpenSubtitlesForcedProvider : ISubtitleProvider
 
         var results = await _client.SearchAsync(query, cancellationToken).ConfigureAwait(false);
 
+        // Jellyfin's automatic downloader takes the top result unseen, so apply the plugin's setting there.
+        // A person searching by hand sees the machine-translated flag and can decide.
+        var skipMachine = request.IsAutomated && (Plugin.Instance?.Configuration.SkipMachineTranslated ?? true);
+
         return results
             .Where(r => r.Attributes.Files.Count == 1)
+            .Where(r => !skipMachine || (!r.Attributes.AiTranslated && !r.Attributes.MachineTranslated))
             .Where(r => !request.IsPerfectMatch || r.Attributes.MovieHashMatch == true)
             .OrderByDescending(r => r.Attributes.MovieHashMatch == true)
             .ThenByDescending(r => r.Attributes.DownloadCount)

@@ -21,6 +21,7 @@ public class ForcedSubtitlesController : ControllerBase
     private readonly ScanStore _store;
     private readonly OpenSubtitlesClient _client;
     private readonly ForcedSubtitleProcessor _processor;
+    private readonly ActivityLog _activity;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ForcedSubtitlesController"/> class.
@@ -28,11 +29,13 @@ public class ForcedSubtitlesController : ControllerBase
     /// <param name="store">Scan state store.</param>
     /// <param name="client">OpenSubtitles client.</param>
     /// <param name="processor">Processor.</param>
-    public ForcedSubtitlesController(ScanStore store, OpenSubtitlesClient client, ForcedSubtitleProcessor processor)
+    /// <param name="activity">Activity log.</param>
+    public ForcedSubtitlesController(ScanStore store, OpenSubtitlesClient client, ForcedSubtitleProcessor processor, ActivityLog activity)
     {
         _store = store;
         _client = client;
         _processor = processor;
+        _activity = activity;
     }
 
     /// <summary>Gets counts per status and the most recent non-trivial results.</summary>
@@ -60,14 +63,38 @@ public class ForcedSubtitlesController : ControllerBase
         };
     }
 
-    /// <summary>Says where the API key and login are coming from (without revealing them).</summary>
-    /// <returns>Credential sources.</returns>
+    /// <summary>
+    /// Says where the API key and login are coming from (without revealing them), whether a check
+    /// is running, and when downloads resume if the daily allowance is used up.
+    /// </summary>
+    /// <returns>Status.</returns>
     [HttpGet("Status")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public ActionResult<object> GetStatus()
     {
         var c = _client.Credentials;
-        return new { c.ApiKeySource, c.LoginSource, c.Username };
+        return new { c.ApiKeySource, c.LoginSource, c.Username, _processor.IsRunning, _client.DownloadsBlockedUntil };
+    }
+
+    /// <summary>Gets the plugin's activity log, newest first.</summary>
+    /// <returns>Log entries.</returns>
+    [HttpGet("Log")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<object> GetLog()
+    {
+        return _activity.Recent()
+            .Select(e => new { e.Time, Level = e.Level.ToString(), e.Message })
+            .ToList();
+    }
+
+    /// <summary>Clears the activity log.</summary>
+    /// <returns>No content.</returns>
+    [HttpPost("Log/Clear")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public ActionResult ClearLog()
+    {
+        _activity.Clear();
+        return NoContent();
     }
 
     /// <summary>Logs in to OpenSubtitles and reports the daily download allowance.</summary>
@@ -88,14 +115,33 @@ public class ForcedSubtitlesController : ControllerBase
         }
     }
 
-    /// <summary>Starts a full check in the background.</summary>
-    /// <returns>Accepted.</returns>
+    /// <summary>Starts a full check in the background, unless there is a reason it can't do anything.</summary>
+    /// <returns>Whether it started, and a message for the user.</returns>
     [HttpPost("Run")]
-    [ProducesResponseType(StatusCodes.Status202Accepted)]
-    public ActionResult Run()
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<object> Run()
     {
+        if (!_client.IsConfigured)
+        {
+            return new { Started = false, Message = "No OpenSubtitles API key. Enter one under Advanced, then save." };
+        }
+
+        if (_processor.IsRunning)
+        {
+            return new { Started = false, Message = "A check is already running. Press Refresh to see its progress." };
+        }
+
+        if (_client.DownloadsBlockedUntil is DateTime until)
+        {
+            return new
+            {
+                Started = false,
+                Message = $"The daily download limit is used up until {ForcedSubtitleProcessor.FormatUtc(until)}. The next run after that carries on.",
+            };
+        }
+
         _processor.RunInBackground(false);
-        return Accepted();
+        return new { Started = true, Message = "Check started in the background. Press Refresh in a minute to see results." };
     }
 
     /// <summary>Forgets scan history so every video is re-checked on the next run.</summary>
@@ -105,6 +151,7 @@ public class ForcedSubtitlesController : ControllerBase
     public ActionResult Reset()
     {
         _store.Clear();
+        _activity.Info("History cleared; every video will be checked again on the next run");
         return NoContent();
     }
 }

@@ -21,7 +21,8 @@ namespace Jellyfin.Plugin.ForcedSubtitles.OpenSubtitles;
 public sealed class OpenSubtitlesClient : IDisposable
 {
     private const string DefaultHost = "api.opensubtitles.com";
-    private const string UserAgent = "JellyfinForcedSubtitles v1.0.0";
+    private static readonly string UserAgent = "JellyfinForcedSubtitles v"
+        + (typeof(OpenSubtitlesClient).Assembly.GetName().Version?.ToString(3) ?? "1.0.0");
 
     // The API allows 5 requests/second per IP; stay comfortably below it.
     private static readonly TimeSpan MinRequestInterval = TimeSpan.FromMilliseconds(300);
@@ -265,11 +266,31 @@ public sealed class OpenSubtitlesClient : IDisposable
         return delay > MaxRetryAfter ? MaxRetryAfter : delay;
     }
 
+    /// <summary>
+    /// When downloads come back: the API's reset time (always UTC, even if it arrives without a zone), else a short wait.
+    /// </summary>
+    internal static DateTime GetDownloadsBlockedUntil(DateTime? resetTimeUtc, DateTime now)
+    {
+        if (resetTimeUtc is DateTime reset)
+        {
+            var utc = reset.Kind switch
+            {
+                DateTimeKind.Utc => reset,
+                DateTimeKind.Local => reset.ToUniversalTime(),
+                _ => DateTime.SpecifyKind(reset, DateTimeKind.Utc)
+            };
+            if (utc > now)
+            {
+                return utc;
+            }
+        }
+
+        return now + QuotaFallbackWait;
+    }
+
     private void BlockDownloads(DateTime? resetTimeUtc)
     {
-        var until = resetTimeUtc is DateTime reset && reset.ToUniversalTime() > DateTime.UtcNow
-            ? reset.ToUniversalTime()
-            : DateTime.UtcNow + QuotaFallbackWait;
+        var until = GetDownloadsBlockedUntil(resetTimeUtc, DateTime.UtcNow);
         _downloadsBlockedUntil = until;
         _logger.LogInformation("OpenSubtitles download allowance used up; pausing downloads until {Until:yyyy-MM-dd HH:mm} UTC", until);
     }

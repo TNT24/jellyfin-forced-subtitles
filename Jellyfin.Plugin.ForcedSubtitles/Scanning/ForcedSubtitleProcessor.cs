@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -12,7 +13,6 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.IO;
-using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.ForcedSubtitles.Scanning;
 
@@ -22,6 +22,9 @@ namespace Jellyfin.Plugin.ForcedSubtitles.Scanning;
 /// </summary>
 public sealed class ForcedSubtitleProcessor
 {
+    // Failed videos wait this long before another try, so a permanent failure doesn't cost a search every run.
+    private static readonly TimeSpan ErrorRetryAfter = TimeSpan.FromDays(1);
+
     private readonly ILibraryManager _libraryManager;
     private readonly SubtitleSaver _saver;
     private readonly IProviderManager _providerManager;
@@ -29,7 +32,7 @@ public sealed class ForcedSubtitleProcessor
     private readonly OpenSubtitlesClient _client;
     private readonly SubtitleInspector _inspector;
     private readonly ScanStore _store;
-    private readonly ILogger<ForcedSubtitleProcessor> _logger;
+    private readonly ActivityLog _activity;
     private readonly SemaphoreSlim _runLock = new(1, 1);
 
     /// <summary>
@@ -42,7 +45,7 @@ public sealed class ForcedSubtitleProcessor
     /// <param name="client">OpenSubtitles client.</param>
     /// <param name="inspector">Subtitle inspector.</param>
     /// <param name="store">Scan state store.</param>
-    /// <param name="logger">Logger.</param>
+    /// <param name="activity">Activity log.</param>
     public ForcedSubtitleProcessor(
         ILibraryManager libraryManager,
         SubtitleSaver saver,
@@ -51,7 +54,7 @@ public sealed class ForcedSubtitleProcessor
         OpenSubtitlesClient client,
         SubtitleInspector inspector,
         ScanStore store,
-        ILogger<ForcedSubtitleProcessor> logger)
+        ActivityLog activity)
     {
         _libraryManager = libraryManager;
         _saver = saver;
@@ -60,7 +63,7 @@ public sealed class ForcedSubtitleProcessor
         _client = client;
         _inspector = inspector;
         _store = store;
-        _logger = logger;
+        _activity = activity;
     }
 
     private enum Need
@@ -69,6 +72,9 @@ public sealed class ForcedSubtitleProcessor
         Forced,
         Full
     }
+
+    /// <summary>Gets a value indicating whether a run is in progress.</summary>
+    public bool IsRunning => _runLock.CurrentCount == 0;
 
     /// <summary>Checks videos and downloads missing subtitles.</summary>
     /// <param name="newItemsOnly">Only look at videos never checked before (used after library scans).</param>
@@ -80,14 +86,14 @@ public sealed class ForcedSubtitleProcessor
         var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
         if (!_client.IsConfigured)
         {
-            _logger.LogWarning("Forced Subtitles: no OpenSubtitles API key configured, skipping");
+            _activity.Warning("No OpenSubtitles API key configured; skipping run");
             return;
         }
 
         // A scheduled run and a post-scan run shouldn't overlap and double-download.
         if (!await _runLock.WaitAsync(0, cancellationToken).ConfigureAwait(false))
         {
-            _logger.LogInformation("Forced Subtitles: a scan is already running, skipping");
+            _activity.Info("A check is already running; skipping this one");
             return;
         }
 
@@ -96,7 +102,7 @@ public sealed class ForcedSubtitleProcessor
             // Searching is pointless while nothing can be downloaded; the next run picks up where this left off.
             if (_client.DownloadsBlockedUntil is DateTime blocked)
             {
-                _logger.LogInformation("Forced Subtitles: daily download limit used up until {Until:yyyy-MM-dd HH:mm} UTC, skipping run", blocked);
+                _activity.Info($"Daily download limit used up until {FormatUtc(blocked)}; skipping run");
                 return;
             }
 
@@ -107,14 +113,26 @@ public sealed class ForcedSubtitleProcessor
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                _logger.LogWarning("Forced Subtitles: cannot log in to OpenSubtitles, skipping run: {Message}", ex.Message);
+                _activity.Warning("Can't log in to OpenSubtitles; skipping run: " + ex.Message);
                 return;
             }
 
-            var videos = GetVideos(config);
-            _logger.LogInformation("Forced Subtitles: checking {Count} videos (new only: {NewOnly})", videos.Count, newItemsOnly);
+            if (!newItemsOnly)
+            {
+                var removed = _store.RemoveWhereMissing(id => _libraryManager.GetItemById(id) is not null);
+                if (removed > 0)
+                {
+                    _activity.Info($"Forgot {removed} videos that are no longer in Jellyfin");
+                }
+            }
 
-            int downloads = 0, searched = 0;
+            var videos = GetVideos(config);
+            if (!newItemsOnly)
+            {
+                _activity.Info($"Checking {videos.Count} videos");
+            }
+
+            int downloads = 0, searched = 0, notFound = 0, errors = 0;
             for (int i = 0; i < videos.Count; i++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -135,9 +153,17 @@ public sealed class ForcedSubtitleProcessor
 
                 searched++;
                 _store.Set(video.Id, outcome);
-                if (outcome.Status == ScanStatus.Downloaded)
+                switch (outcome.Status)
                 {
-                    downloads++;
+                    case ScanStatus.Downloaded:
+                        downloads++;
+                        break;
+                    case ScanStatus.NotFound:
+                        notFound++;
+                        break;
+                    case ScanStatus.Error:
+                        errors++;
+                        break;
                 }
 
                 if (searched % 25 == 0)
@@ -147,26 +173,26 @@ public sealed class ForcedSubtitleProcessor
 
                 if (downloads >= Math.Max(1, config.MaxDownloadsPerRun))
                 {
-                    _logger.LogInformation("Forced Subtitles: reached {Max} downloads for this run, stopping", config.MaxDownloadsPerRun);
+                    _activity.Info($"Reached {config.MaxDownloadsPerRun} downloads for this run; stopping");
                     break;
                 }
 
-                if (outcome.Detail?.StartsWith("Quota", StringComparison.Ordinal) == true)
-                {
-                    break;
-                }
-
-                // The last download used up the allowance: stop now instead of searching for the next video.
+                // Out of downloads (refused, or the last one used them up): stop instead of searching on.
                 if (_client.DownloadsBlockedUntil is DateTime until)
                 {
-                    _logger.LogInformation("Forced Subtitles: daily download limit used up until {Until:yyyy-MM-dd HH:mm} UTC, stopping", until);
+                    _activity.Info($"Daily download limit used up until {FormatUtc(until)}; stopping");
                     break;
                 }
             }
 
             _store.Save();
             progress.Report(100);
-            _logger.LogInformation("Forced Subtitles: done, {Searched} videos updated, {Downloads} subtitles downloaded", searched, downloads);
+
+            // Post-scan runs usually find nothing new; only mention them when they did something.
+            if (!newItemsOnly || searched > 0)
+            {
+                _activity.Info($"{(newItemsOnly ? "New videos checked" : "Done")}: {downloads} downloaded, {notFound} with none available, {errors} failed");
+            }
         }
         finally
         {
@@ -186,9 +212,45 @@ public sealed class ForcedSubtitleProcessor
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Forced Subtitles: background run failed");
+                _activity.Error("Run failed", ex);
             }
         });
+    }
+
+    /// <summary>Formats a UTC time for log messages.</summary>
+    /// <param name="utc">The time.</param>
+    /// <returns>For example "2026-10-11 14:30 UTC".</returns>
+    internal static string FormatUtc(DateTime utc)
+        => utc.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) + " UTC";
+
+    /// <summary>Works out whether a video that still needs a subtitle should be searched for now.</summary>
+    /// <param name="previous">The last result for the video, if any.</param>
+    /// <param name="config">Settings.</param>
+    /// <param name="now">Current time (UTC).</param>
+    /// <param name="fileExists">Checks whether a file exists.</param>
+    /// <returns>True to search.</returns>
+    internal static bool ShouldSearch(ScanRecord? previous, PluginConfiguration config, DateTime now, Func<string, bool> fileExists)
+    {
+        switch (previous?.Status)
+        {
+            case null:
+            case ScanStatus.AlreadyHas:
+                return true;
+
+            // We saved a file and Jellyfin just hasn't picked it up yet, unless the file has since been deleted.
+            case ScanStatus.Downloaded:
+                return previous.SavedPath is not null && !fileExists(previous.SavedPath);
+
+            case ScanStatus.NotFound:
+                return previous.LastChecked <= now.AddDays(-Math.Max(1, config.RecheckAfterDays));
+
+            // Out of downloads last time: nothing was wrong with the video, so try again on the next run.
+            case ScanStatus.Error when previous.Detail?.StartsWith("Quota", StringComparison.Ordinal) == true:
+                return true;
+
+            default:
+                return previous.LastChecked <= now - ErrorRetryAfter;
+        }
     }
 
     /// <summary>
@@ -221,14 +283,7 @@ public sealed class ForcedSubtitleProcessor
             return previous?.Status == ScanStatus.AlreadyHas ? null : Record(video, ScanStatus.AlreadyHas, Describe(state));
         }
 
-        // We already saved a file; Jellyfin just may not have picked it up yet.
-        if (previous?.Status == ScanStatus.Downloaded)
-        {
-            return null;
-        }
-
-        if (previous?.Status == ScanStatus.NotFound
-            && previous.LastChecked > DateTime.UtcNow.AddDays(-Math.Max(1, config.RecheckAfterDays)))
+        if (!ShouldSearch(previous, config, DateTime.UtcNow, File.Exists))
         {
             return null;
         }
@@ -250,16 +305,20 @@ public sealed class ForcedSubtitleProcessor
                 return Record(video, ScanStatus.NotFound, (wantForced ? "No forced " : "No full ") + language + " subtitle found");
             }
 
+            // Pick the folder before downloading: a download counts against the allowance even if saving fails.
+            var folder = _saver.ResolveFolder(video, config.SaveLocation);
+
             var (content, remaining) = await _client.DownloadAsync(best.File.FileId, cancellationToken).ConfigureAwait(false);
+            string savedPath;
             await using (content.ConfigureAwait(false))
             {
-                await _saver.SaveAsync(
+                savedPath = await _saver.SaveAsync(
                     video,
+                    folder,
                     content,
                     _inspector.ToThreeLetter(query.Language),
                     wantForced,
                     best.Entry.Attributes.HearingImpaired,
-                    config.SaveLocation,
                     cancellationToken).ConfigureAwait(false);
             }
 
@@ -268,25 +327,27 @@ public sealed class ForcedSubtitleProcessor
                 new MetadataRefreshOptions(new DirectoryService(_fileSystem)),
                 RefreshPriority.Normal);
 
-            _logger.LogInformation(
-                "Forced Subtitles: downloaded {Kind} {Language} subtitle for {Name} ({Release}{Hash}); {Remaining} downloads left today",
+            var record = Record(video, ScanStatus.Downloaded, (wantForced ? "Forced: " : "Full: ") + best.Entry.Attributes.Release);
+            record.SavedPath = savedPath;
+            _activity.Info(string.Format(
+                CultureInfo.InvariantCulture,
+                "Downloaded {0} {1} subtitle for {2} ({3}{4}){5}",
                 wantForced ? "forced" : "full",
                 language,
-                video.Name,
+                record.Name,
                 best.Entry.Attributes.Release,
                 best.Entry.Attributes.MovieHashMatch == true ? ", hash match" : string.Empty,
-                remaining);
-
-            return Record(video, ScanStatus.Downloaded, (wantForced ? "Forced: " : "Full: ") + best.Entry.Attributes.Release);
+                remaining is int left ? $"; {left} downloads left today" : string.Empty));
+            return record;
         }
         catch (DownloadQuotaExceededException ex)
         {
-            _logger.LogWarning("Forced Subtitles: {Message}", ex.Message);
+            _activity.Warning(ex.Message);
             return Record(video, ScanStatus.Error, "Quota reached, will retry next run");
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogError(ex, "Forced Subtitles: failed for {Name}", video.Name);
+            _activity.Error("Failed for " + Record(video, ScanStatus.Error, string.Empty).Name, ex);
             return Record(video, ScanStatus.Error, ex.Message);
         }
     }
@@ -326,7 +387,7 @@ public sealed class ForcedSubtitleProcessor
             var existing = libraryIds.Where(id => _libraryManager.GetItemById(id) is Folder).ToArray();
             if (existing.Length == 0)
             {
-                _logger.LogWarning("Forced Subtitles: none of the selected libraries exist any more; re-pick them in the plugin settings");
+                _activity.Warning("None of the selected libraries exist any more; pick them again in the plugin settings");
                 return [];
             }
 

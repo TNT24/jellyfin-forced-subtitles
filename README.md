@@ -100,18 +100,24 @@ Jellyfin picks the build that matches your server version, and new releases appe
 | Require hash match | Off | Only accept subtitles made for your exact file. |
 | Skip machine translations | On | Ignore AI or machine-translated subtitles. |
 | Re-search after (days) | 14 | How long to wait before searching again for a video where nothing was found. |
-| Max downloads per run | 20 | Stops each run at this many downloads to stay within your daily quota. |
+| Max downloads per run | 20 | Stops each run at this many downloads. Keep it at or below your daily allowance. |
 
 The **Results** panel lists what was found, what was downloaded and what wasn't available, with **Run now**,
-**Refresh** and **Forget history** buttons.
+**Refresh** and **Forget history** buttons. The account box at the top also shows when the daily download limit is
+used up and when it renews.
+
+The **Log** panel shows what the plugin has done since Jellyfin last started: each run, each download and where it was
+saved, and anything that went wrong. Everything in it also goes to Jellyfin's server log (Dashboard → **Logs**,
+search for `ForcedSubtitles`), which keeps the full history.
 
 ## Good to know
 
 **Where do subtitles go?**
 Jellyfin only picks up external subtitles that sit right next to the video or in its metadata folder. A subfolder
 like `Movie/subtitles/` won't work. The default (metadata folder) leaves your media untouched. Pick **next to the
-video** if other players such as VLC or Plex need the files too. Files are named `<video>.eng.forced.srt`, or
-`<video>.eng.srt` for full subtitles.
+video** if other players such as VLC or Plex need the files too. If a media folder is read-only (for example a Docker
+`:ro` mount), the plugin saves to the metadata folder instead and says so in the log. Files are named
+`<video>.eng.forced.srt`, or `<video>.eng.srt` for full subtitles.
 
 **How does it decide what's missing?**
 A subtitle counts as forced if its forced flag is set, or if its title or filename contains "forced" or "foreign".
@@ -123,10 +129,18 @@ That's normal. Many films have no forced subtitle uploaded, and many have the fo
 so no forced subtitle is needed.
 
 **Download limits**
-Free OpenSubtitles accounts get about **20 downloads a day**. The official OpenSubtitles plugin uses the same
-allowance if it's logged in with the same account. Searches don't count. When the allowance runs out, the run stops
-straight away, and later runs (including the ones after library scans) are skipped until OpenSubtitles says it has
-renewed. The next run then picks up where it left off.
+OpenSubtitles limits how many subtitles each account can download a day; **Test connection** shows your allowance.
+The official OpenSubtitles plugin uses the same allowance if it's logged in with the same account. Searches don't
+count. When the allowance runs out, the run stops straight away, and later runs (including the ones after library
+scans) are skipped until OpenSubtitles says it has renewed. The next run then picks up where it left off.
+
+**What if something fails?**
+The video is marked as an error in the Results panel and tried again after a day, so a problem that won't go away
+doesn't cost a search every run. If you delete a subtitle the plugin downloaded, it fetches it again on the next run.
+
+**Do updates keep my settings?**
+Yes. Jellyfin stores the plugin's settings (API key, username, password and everything else) and its history outside
+the plugin's own folder, so updating or reinstalling the plugin keeps them.
 
 **Deleted and re-added an item?**
 Subtitles in the metadata folder belong to Jellyfin's database entry for that item, so they're removed with it. The
