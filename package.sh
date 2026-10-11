@@ -58,11 +58,14 @@ build() {
 JSON
   # zip, or bsdtar (built into Windows 10+). Both write portable '/' paths; PowerShell 5's
   # Compress-Archive writes '\' which Linux/Docker servers unpack as a single odd file name.
-  ZIP="${NAME}_jellyfin-$TARGET.zip"
+  # The files go at the root of the zip, not in a folder: Jellyfin unpacks a repository install
+  # straight into its own plugins/<name>_<version> folder and expects meta.json there.
+  ZIP="../${NAME}_jellyfin-$TARGET.zip"
+  FILES="Jellyfin.Plugin.ForcedSubtitles.dll logo.png meta.json"
   if command -v zip >/dev/null 2>&1; then
-    (cd "$DIR" && zip -qr "$ZIP" "$NAME")
+    (cd "$OUT" && zip -q "$ZIP" $FILES)
   else
-    (cd "$DIR" && /c/Windows/System32/tar.exe -a -cf "$ZIP" "$NAME")
+    (cd "$OUT" && /c/Windows/System32/tar.exe -a -cf "$ZIP" $FILES)
   fi
   echo "Built $OUT"
 }

@@ -13,7 +13,7 @@
         "changelog": "Respects the daily download limit, retries failures after a day, read-only media folder fallback, log panel on the settings page",
         "targetAbi": "12.0.0.0",
         "sourceUrl": "https://github.com/TNT24/jellyfin-forced-subtitles/releases/download/v1.2.0/ForcedSubtitles_1.2.0.12_jellyfin-12.zip",
-        "checksum": "fbe79f18caebe8264d02a70c0ed24439",
+        "checksum": "59c0f667be7ab44be9abf9798f109d6b",
         "timestamp": "2026-10-11T00:00:00Z"
       },
       {
@@ -21,7 +21,7 @@
         "changelog": "Respects the daily download limit, retries failures after a day, read-only media folder fallback, log panel on the settings page",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/TNT24/jellyfin-forced-subtitles/releases/download/v1.2.0/ForcedSubtitles_1.2.0.11_jellyfin-10.11.zip",
-        "checksum": "e8844e13904abeae8c3d1d8fb0c2017f",
+        "checksum": "efdfedc6f8bdea926e5495351b7211c4",
         "timestamp": "2026-10-11T00:00:00Z"
       },
       {
