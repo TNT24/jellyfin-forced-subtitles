@@ -19,7 +19,14 @@ if [ -z "$KEY" ] && [ -f opensubtitles-api-key.txt ]; then
 fi
 if [ -z "$KEY" ]; then
   echo "Note: no built-in API key; users will have to enter one in the plugin settings."
+else
+  # Anyone can read assembly metadata, so a public release shares this key with everyone who downloads it.
+  echo "Warning: building with a built-in API key. It can be read from the DLL; only publish if that key is meant to be shared."
 fi
+
+# Test each Jellyfin line before packaging it.
+dotnet test tests/Jellyfin.Plugin.ForcedSubtitles.Tests -c Release -p:JellyfinTarget=12
+dotnet test tests/Jellyfin.Plugin.ForcedSubtitles.Tests -c Release -p:JellyfinTarget=10.11
 
 rm -rf dist
 
@@ -46,7 +53,7 @@ build() {
   "guid": "5c6b4d1e-9f3a-4b8e-a2d7-0f1e6c3b9a47",
   "name": "Forced Subtitles",
   "overview": "Download missing forced and foreign-language subtitles from OpenSubtitles.com",
-  "owner": "local",
+  "owner": "TNT24",
   "targetAbi": "$ABI",
   "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "version": "$VERSION",

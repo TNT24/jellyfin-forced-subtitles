@@ -9,7 +9,7 @@ description: >
   Checks your libraries for videos missing subtitles. English-audio videos get a forced
   (foreign dialogue only) subtitle when one exists; foreign-audio videos get a full subtitle.
 category: "Subtitles"
-owner: "local"
+owner: "TNT24"
 artifacts:
 - "Jellyfin.Plugin.ForcedSubtitles.dll"
 changelog: "Updates now install automatically through Jellyfin's Update Plugins task"
