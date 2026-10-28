@@ -128,6 +128,38 @@
                     </div>
 
                     <div class="verticalSection">
+                        <h2 class="sectionTitle">Discord notifications</h2>
+                        <div id="FsDiscordStatus" class="fs-status" hidden></div>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="DiscordWebhookUrl">Webhook URL</label>
+                            <input id="DiscordWebhookUrl" type="url" is="emby-input" autocomplete="off" placeholder="https://discord.com/api/webhooks/…" />
+                            <div class="fieldDescription">In Discord: channel settings → Integrations → Webhooks → New Webhook → Copy Webhook URL. Leave blank to turn notifications off.</div>
+                        </div>
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input id="NotifyDownloads" type="checkbox" is="emby-checkbox" />
+                                <span>Post the subtitles each run downloads</span>
+                            </label>
+                            <div class="fieldDescription checkboxFieldDescription">One message per run, listing each video. Runs that download nothing stay quiet.</div>
+                        </div>
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input id="NotifyProblems" type="checkbox" is="emby-checkbox" />
+                                <span>Post when something needs attention</span>
+                            </label>
+                            <div class="fieldDescription checkboxFieldDescription">When the OpenSubtitles login stops working (at most once a day), and when the daily download limit runs out.</div>
+                        </div>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="PublicServerUrl">Server address for links (optional)</label>
+                            <input id="PublicServerUrl" type="url" is="emby-input" autocomplete="off" placeholder="https://jellyfin.example.com" />
+                            <div class="fieldDescription">When set, each video in a message links to its page in Jellyfin.</div>
+                        </div>
+                        <div class="fs-buttons">
+                            <button is="emby-button" type="button" id="FsTestDiscord" class="raised emby-button"><span>Send test message</span></button>
+                        </div>
+                    </div>
+
+                    <div class="verticalSection">
                         <h2 class="sectionTitle">Matching</h2>
                         <div class="checkboxContainer checkboxContainer-withDescription">
                             <label class="emby-checkbox-label">
@@ -183,8 +215,8 @@
             (function () {
                 var pluginId = '5c6b4d1e-9f3a-4b8e-a2d7-0f1e6c3b9a47';
                 var page = document.querySelector('#ForcedSubsConfigPage');
-                var textFields = ['ApiKey', 'Username', 'Password', 'ForcedLanguage', 'RecheckAfterDays', 'MaxDownloadsPerRun', 'SaveLocation'];
-                var boolFields = ['DownloadFullWhenAudioForeign', 'ScanMovies', 'ScanEpisodes', 'CheckOnLibraryScan', 'RequireHashMatch', 'SkipMachineTranslated'];
+                var textFields = ['ApiKey', 'Username', 'Password', 'ForcedLanguage', 'RecheckAfterDays', 'MaxDownloadsPerRun', 'SaveLocation', 'DiscordWebhookUrl', 'PublicServerUrl'];
+                var boolFields = ['DownloadFullWhenAudioForeign', 'ScanMovies', 'ScanEpisodes', 'CheckOnLibraryScan', 'RequireHashMatch', 'SkipMachineTranslated', 'NotifyDownloads', 'NotifyProblems'];
                 var labels = { Downloaded: 'Downloaded', NotFound: 'None available', Error: 'Error' };
 
                 function $(sel) { return page.querySelector(sel); }
@@ -288,6 +320,7 @@
                     ApiClient.getPluginConfiguration(pluginId).then(function (config) {
                         textFields.forEach(function (k) { $('#' + k).value = config[k] == null ? '' : config[k]; });
                         boolFields.forEach(function (k) { $('#' + k).checked = !!config[k]; });
+                        updateDiscordStatus();
                         return Promise.all([loadLibraries(config.LibraryIds || []), loadReport(), loadStatus(), loadLog()]);
                     }).finally(function () { Dashboard.hideLoadingMsg(); });
                 });
@@ -322,6 +355,33 @@
                         return loadStatus().then(function () {
                             $('#FsStatus').innerHTML += '<br><span class="' + (r.Ok ? 'fs-ok">✓ ' : 'fs-bad">✗ ') + esc(r.Message) + '</span>';
                         });
+                    });
+                });
+
+                function updateDiscordStatus() {
+                    var url = $('#DiscordWebhookUrl').value.trim();
+                    var box = $('#FsDiscordStatus');
+                    box.hidden = false;
+                    box.innerHTML = !url
+                        ? '<span class="fs-warn">! Discord notifications are off. Add a webhook URL to turn them on.</span>'
+                        : /^https:\/\/(ptb\.|canary\.)?discord(app)?\.com\/api\/webhooks\//.test(url)
+                            ? '<span class="fs-ok">✓ Discord notifications are on.</span>'
+                            : '<span class="fs-bad">✗ That doesn\'t look like a Discord webhook URL. It should start with https://discord.com/api/webhooks/</span>';
+                }
+
+                $('#DiscordWebhookUrl').addEventListener('input', updateDiscordStatus);
+
+                // Test what's on the page, not what was last saved: save first.
+                $('#FsTestDiscord').addEventListener('click', function () {
+                    var box = $('#FsDiscordStatus');
+                    box.hidden = false;
+                    box.textContent = 'Saving and sending…';
+                    saveConfig().then(function () {
+                        return post('ForcedSubtitles/TestDiscord');
+                    }).then(function (r) {
+                        box.innerHTML = '<span class="' + (r.Ok ? 'fs-ok">✓ ' : 'fs-bad">✗ ') + esc(r.Message) + '</span>';
+                    }, function () {
+                        box.innerHTML = '<span class="fs-bad">✗ Could not send the test message.</span>';
                     });
                 });
 

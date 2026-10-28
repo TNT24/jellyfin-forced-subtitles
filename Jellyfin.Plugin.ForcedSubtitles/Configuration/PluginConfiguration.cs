@@ -53,4 +53,19 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the maximum downloads per task run. Free OpenSubtitles accounts get roughly 20 per day.
     /// </summary>
     public int MaxDownloadsPerRun { get; set; } = 20;
+
+    /// <summary>Gets or sets the Discord webhook URL. Empty turns Discord notifications off.</summary>
+    public string DiscordWebhookUrl { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets a value indicating whether Discord gets a list of the subtitles each run downloaded.</summary>
+    public bool NotifyDownloads { get; set; } = true;
+
+    /// <summary>Gets or sets a value indicating whether Discord is told when the login fails or the daily limit runs out.</summary>
+    public bool NotifyProblems { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets the address Discord can reach the server on (e.g. https://jellyfin.example.com).
+    /// When set, notifications link to each video. Empty leaves the links out.
+    /// </summary>
+    public string PublicServerUrl { get; set; } = string.Empty;
 }

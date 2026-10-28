@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.ForcedSubtitles.Notifications;
 using Jellyfin.Plugin.ForcedSubtitles.OpenSubtitles;
 using MediaBrowser.Model.Activity;
 using Microsoft.Extensions.DependencyInjection;
@@ -114,6 +115,16 @@ public sealed class DownloadLimitMonitor : IHostedService, IDisposable
             "Forced Subtitles: OpenSubtitles daily download limit reached",
             $"Downloads resume automatically after {ForcedSubtitleProcessor.FormatUtc(until)}.",
             LogLevel.Warning);
+
+        try
+        {
+            _services.GetService<SubtitleNotifier>()?.LimitReached(until);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Forced Subtitles: could not tell Discord about the download limit");
+        }
+
         ScheduleResume(until);
     }
 

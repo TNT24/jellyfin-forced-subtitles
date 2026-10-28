@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.ForcedSubtitles.Notifications;
 using Jellyfin.Plugin.ForcedSubtitles.OpenSubtitles;
 using Jellyfin.Plugin.ForcedSubtitles.Scanning;
 using Microsoft.AspNetCore.Authorization;
@@ -108,6 +109,30 @@ public class ForcedSubtitlesController : ControllerBase
         {
             var info = await _client.GetUserInfoAsync(cancellationToken).ConfigureAwait(false);
             return new { Ok = true, Message = $"Connected as {_client.Credentials.Username} ({info.Level}). {info.RemainingDownloads} of {info.AllowedDownloads} downloads left today." };
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return new { Ok = false, ex.Message };
+        }
+    }
+
+    /// <summary>Sends a test message to the Discord webhook in the saved settings.</summary>
+    /// <param name="notifier">Discord notifications.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Result of the test.</returns>
+    [HttpPost("TestDiscord")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<object>> TestDiscord([FromServices] SubtitleNotifier notifier, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(Plugin.Instance?.Configuration.DiscordWebhookUrl))
+        {
+            return new { Ok = false, Message = "Enter a Discord webhook URL first." };
+        }
+
+        try
+        {
+            await notifier.TestAsync(cancellationToken).ConfigureAwait(false);
+            return new { Ok = true, Message = "Sent. Check your Discord channel." };
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

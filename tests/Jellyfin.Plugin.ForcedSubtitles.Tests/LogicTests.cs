@@ -1,5 +1,6 @@
 using System.IO;
 using Jellyfin.Plugin.ForcedSubtitles.Configuration;
+using Jellyfin.Plugin.ForcedSubtitles.Notifications;
 using Jellyfin.Plugin.ForcedSubtitles.OpenSubtitles;
 using Jellyfin.Plugin.ForcedSubtitles.Scanning;
 using Xunit;
@@ -321,5 +322,66 @@ public class DownloadLimitPersistenceTests
     {
         Assert.Equal(System.TimeSpan.Zero, DownloadLimitMonitor.GetResumeWait(Now.AddHours(-1), Now));
         Assert.Equal(System.TimeSpan.FromDays(2), DownloadLimitMonitor.GetResumeWait(Now.AddDays(30), Now));
+    }
+}
+
+public class DiscordMessageTests
+{
+    private static DownloadedSubtitle Download(string name, bool forced = true, int? remaining = null)
+        => new(Guid.NewGuid(), name, forced, "eng", false, remaining);
+
+    [Fact]
+    public void NothingDownloaded_NoMessage()
+    {
+        Assert.Null(DiscordMessageBuilder.BuildDownloads([], string.Empty));
+    }
+
+    [Fact]
+    public void Downloads_CountsEachKind_AndShowsTheLastRemaining()
+    {
+        var msg = DiscordMessageBuilder.BuildDownloads([Download("A", remaining: 9), Download("B", remaining: 8), Download("C", forced: false)], string.Empty)!;
+        Assert.Equal("💬 **Downloaded 2 forced subtitles and 1 full subtitle**", msg["content"]!.GetValue<string>());
+        Assert.Equal("8 downloads left today", msg["embeds"]![0]!["footer"]!["text"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void Downloads_LinkToTheVideo_WhenServerAddressIsSet()
+    {
+        var d = Download("Heat (1995)");
+        var description = DiscordMessageBuilder.BuildDownloads([d], "https://jf.example.com/")!["embeds"]![0]!["description"]!.GetValue<string>();
+        Assert.Contains($"(https://jf.example.com/web/#/details?id={d.ItemId:N})", description);
+    }
+
+    [Fact]
+    public void LongRuns_AreCutShort()
+    {
+        var downloads = Enumerable.Range(0, 40).Select(i => Download("Film " + i)).ToList();
+        var description = DiscordMessageBuilder.BuildDownloads(downloads, string.Empty)!["embeds"]![0]!["description"]!.GetValue<string>();
+        Assert.EndsWith("…and 15 more", description);
+    }
+
+    [Fact]
+    public void NeverPingsAnyone()
+    {
+        var msg = DiscordMessageBuilder.BuildDownloads([Download("@everyone")], string.Empty)!;
+        Assert.Empty(msg["allowed_mentions"]!["parse"]!.AsArray());
+    }
+
+    [Fact]
+    public void Timestamp_UsesDiscordFormat()
+    {
+        Assert.Equal("<t:0:R> (<t:0:f>)", DiscordMessageBuilder.Timestamp(DateTime.UnixEpoch));
+    }
+
+    [Fact]
+    public void SameProblem_IsReportedOncePerDay()
+    {
+        var notifier = new SubtitleNotifier(null!, null!);
+        var now = new DateTime(2026, 10, 1, 12, 0, 0, DateTimeKind.Utc);
+        Assert.True(notifier.IsNewProblem("bad password", now));
+        Assert.False(notifier.IsNewProblem("bad password", now.AddHours(5)));
+        Assert.True(notifier.IsNewProblem("other", now.AddHours(6)));
+        Assert.True(notifier.IsNewProblem("bad password", now.AddHours(7)));
+        Assert.True(notifier.IsNewProblem("bad password", now.AddHours(32)));
     }
 }

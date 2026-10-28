@@ -10,8 +10,8 @@ set -e
 cd "$(dirname "$0")"
 # Each Jellyfin line gets its own last version number (….12 / ….11) so a Jellyfin 12 server, which can
 # also install 10.11 builds, always picks the newer 12 build.
-BASE_VERSION=1.2.3
-CHANGELOG="Updates now install automatically through Jellyfin's Update Plugins task"
+BASE_VERSION=1.3.0
+CHANGELOG="Optional Discord notifications: a list of the subtitles each run downloaded, and alerts when the OpenSubtitles login fails or the daily download limit runs out"
 
 KEY="${OPENSUBTITLES_API_KEY:-}"
 if [ -z "$KEY" ] && [ -f opensubtitles-api-key.txt ]; then

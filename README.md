@@ -38,6 +38,7 @@ This plugin goes through your library, works out what each video is missing, and
 - **Runs by itself.** It runs as a daily scheduled task and after every library scan, and there's a **Run now** button.
 - **Remembers results.** Nothing is downloaded twice, and titles with no forced subtitle aren't searched again until a set number of days has passed.
 - **Keeps media folders clean.** Subtitles go to Jellyfin's metadata folder by default, or next to the video if you prefer.
+- **Discord notifications (optional).** Add a webhook URL and each run posts the subtitles it downloaded. You're also told when the OpenSubtitles login stops working or the daily download limit runs out.
 - **Adds a manual search source.** Jellyfin's *Edit subtitles → Search* dialog gets an **OpenSubtitles (Forced aware)** source, with forced results tagged `[FORCED]`.
 - **Reuses your login.** It can use the account you already set up in the official OpenSubtitles plugin.
 

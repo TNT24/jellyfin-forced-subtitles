@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.ForcedSubtitles.Configuration;
+using Jellyfin.Plugin.ForcedSubtitles.Notifications;
 using Jellyfin.Plugin.ForcedSubtitles.OpenSubtitles;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
@@ -33,6 +34,7 @@ public sealed class ForcedSubtitleProcessor
     private readonly SubtitleInspector _inspector;
     private readonly ScanStore _store;
     private readonly ActivityLog _activity;
+    private readonly SubtitleNotifier _notifier;
     private readonly SemaphoreSlim _runLock = new(1, 1);
 
     /// <summary>
@@ -46,6 +48,7 @@ public sealed class ForcedSubtitleProcessor
     /// <param name="inspector">Subtitle inspector.</param>
     /// <param name="store">Scan state store.</param>
     /// <param name="activity">Activity log.</param>
+    /// <param name="notifier">Discord notifications.</param>
     public ForcedSubtitleProcessor(
         ILibraryManager libraryManager,
         SubtitleSaver saver,
@@ -54,7 +57,8 @@ public sealed class ForcedSubtitleProcessor
         OpenSubtitlesClient client,
         SubtitleInspector inspector,
         ScanStore store,
-        ActivityLog activity)
+        ActivityLog activity,
+        SubtitleNotifier notifier)
     {
         _libraryManager = libraryManager;
         _saver = saver;
@@ -64,6 +68,7 @@ public sealed class ForcedSubtitleProcessor
         _inspector = inspector;
         _store = store;
         _activity = activity;
+        _notifier = notifier;
     }
 
     private enum Need
@@ -114,6 +119,7 @@ public sealed class ForcedSubtitleProcessor
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 _activity.Warning("Can't log in to OpenSubtitles; skipping run: " + ex.Message);
+                await _notifier.LoginFailedAsync(ex.Message, cancellationToken).ConfigureAwait(false);
                 return;
             }
 
@@ -133,6 +139,7 @@ public sealed class ForcedSubtitleProcessor
             }
 
             int downloads = 0, searched = 0, notFound = 0, errors = 0;
+            var downloaded = new List<DownloadedSubtitle>();
             for (int i = 0; i < videos.Count; i++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -145,7 +152,7 @@ public sealed class ForcedSubtitleProcessor
                     continue;
                 }
 
-                var outcome = await ProcessAsync(video, record, config, cancellationToken).ConfigureAwait(false);
+                var outcome = await ProcessAsync(video, record, config, downloaded, cancellationToken).ConfigureAwait(false);
                 if (outcome is null)
                 {
                     continue;
@@ -193,6 +200,8 @@ public sealed class ForcedSubtitleProcessor
             {
                 _activity.Info($"{(newItemsOnly ? "New videos checked" : "Done")}: {downloads} downloaded, {notFound} with none available, {errors} failed");
             }
+
+            await _notifier.DownloadsAsync(downloaded, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -255,8 +264,9 @@ public sealed class ForcedSubtitleProcessor
 
     /// <summary>
     /// Checks one video. Returns null when nothing changed and no record needs writing.
+    /// A download is also added to <paramref name="downloaded"/>, for Discord.
     /// </summary>
-    private async Task<ScanRecord?> ProcessAsync(Video video, ScanRecord? previous, PluginConfiguration config, CancellationToken cancellationToken)
+    private async Task<ScanRecord?> ProcessAsync(Video video, ScanRecord? previous, PluginConfiguration config, List<DownloadedSubtitle> downloaded, CancellationToken cancellationToken)
     {
         var language = string.IsNullOrWhiteSpace(config.ForcedLanguage) ? "eng" : config.ForcedLanguage.Trim();
         var state = _inspector.Inspect(video, language);
@@ -329,6 +339,13 @@ public sealed class ForcedSubtitleProcessor
 
             var record = Record(video, ScanStatus.Downloaded, (wantForced ? "Forced: " : "Full: ") + best.Entry.Attributes.Release);
             record.SavedPath = savedPath;
+            downloaded.Add(new DownloadedSubtitle(
+                video.Id,
+                record.Name,
+                wantForced,
+                language,
+                best.Entry.Attributes.MovieHashMatch == true,
+                remaining));
             _activity.Info(string.Format(
                 CultureInfo.InvariantCulture,
                 "Downloaded {0} {1} subtitle for {2} ({3}{4}){5}",
